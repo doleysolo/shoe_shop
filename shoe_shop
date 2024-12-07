@@ -1,0 +1,720 @@
+from openpyxl import Workbook
+import os
+import sys
+import sqlite3
+from datetime import datetime
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
+                             QLineEdit, QPushButton, QComboBox, QLabel, QMessageBox,
+                             QFrame, QHBoxLayout, QScrollArea, QDialog, QFormLayout)
+from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtCore import Qt
+
+DB_NAME = "shop.db"
+
+# Запросы для создания таблиц
+CREATE_CATEGORY_TABLE = '''
+CREATE TABLE IF NOT EXISTS category(
+    id_category INTEGER PRIMARY KEY AUTOINCREMENT,
+    name_category TEXT UNIQUE
+)
+'''
+CREATE_GENDER_TABLE = '''
+CREATE TABLE IF NOT EXISTS gender(
+    id_gender INTEGER PRIMARY KEY AUTOINCREMENT,
+    name_gender TEXT UNIQUE
+)
+'''
+CREATE_SEASON_TABLE = '''
+CREATE TABLE IF NOT EXISTS season(
+    id_season INTEGER PRIMARY KEY AUTOINCREMENT,
+    name_season TEXT UNIQUE
+)
+'''
+CREATE_SHOES_TABLE = '''
+CREATE TABLE IF NOT EXISTS shoes(
+    id_shoes INTEGER PRIMARY KEY AUTOINCREMENT,
+    name_shoes TEXT,
+    id_category INTEGER,
+    id_gender INTEGER,
+    id_season INTEGER,
+    size INTEGER,
+    price REAL,
+    material TEXT,
+    color TEXT,
+    brand TEXT,
+    product_image TEXT,
+    FOREIGN KEY (id_category) REFERENCES category(id_category),
+    FOREIGN KEY (id_gender) REFERENCES gender(id_gender),
+    FOREIGN KEY (id_season) REFERENCES season(id_season)
+)
+'''
+CREATE_SHOPPINGCART_TABLE = '''
+CREATE TABLE IF NOT EXISTS shoppingcart (
+    id_shoppingcart INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_shoes INTEGER,
+    amount_cart INTEGER,
+    FOREIGN KEY (id_shoes) REFERENCES shoes (id_shoes)
+)
+'''
+CREATE_ORDER_TABLE = '''
+CREATE TABLE IF NOT EXISTS orders (
+    id_order INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_shoppingcart INTEGER,
+    order_date TEXT,
+    town TEXT,
+    street TEXT,
+    house TEXT,
+    flat TEXT,
+    payment_method TEXT,
+    total_price REAL,
+    FOREIGN KEY (id_shoppingcart) REFERENCES shoppingcart(id_shoppingcart)
+)
+'''
+CREATE_USERS_TABLE = '''
+CREATE TABLE IF NOT EXISTS users (
+    id_user INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    login TEXT UNIQUE,
+    password TEXT
+)
+'''
+
+def connect_db():
+    # Функция для подключения к базе данных.
+    try:
+        return sqlite3.connect(DB_NAME)
+    except sqlite3.Error as e:
+        print(f"Ошибка подключения к базе данных: {e}")
+        return None
+
+
+def create_tables():
+    # Создание всех таблиц в базе данных
+    conn = connect_db()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute(CREATE_CATEGORY_TABLE)
+            cursor.execute(CREATE_GENDER_TABLE)
+            cursor.execute(CREATE_SEASON_TABLE)
+            cursor.execute(CREATE_SHOES_TABLE)
+            cursor.execute(CREATE_SHOPPINGCART_TABLE)
+            cursor.execute(CREATE_ORDER_TABLE)
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"Ошибка создания таблиц: {e}")
+        finally:
+            conn.close()
+
+
+def populate_database():
+    # Заполнение базы данных начальными данными, если она пуста
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+
+        # Проверка на наличие записей в таблице shoes
+        cursor.execute("SELECT COUNT(*) FROM shoes")
+        if cursor.fetchone()[0] > 0:
+            return  # Если записи есть, не добавлять
+
+        categories = [("Ботинки",), ("Туфли",), ("Кеды",), ("Кроссовки",)]
+        genders = [("Женский",), ("Мужской",)]
+        seasons = [("Зима",), ("Лето",), ("Демисезон",), ("Лето/Демисезон",)]
+
+        cursor.executemany("INSERT OR IGNORE INTO category (name_category) VALUES (?)", categories)
+        cursor.executemany("INSERT OR IGNORE INTO gender (name_gender) VALUES (?)", genders)
+        cursor.executemany("INSERT OR IGNORE INTO season (name_season) VALUES (?)", seasons)
+
+        shoes = [
+            ("Угги TENDANCE", 1, 1, 1, 36, 5500.77, "Кожа натуральная, мех", "Черный", "TENDANCE",
+             "images_shoe/uggi_wom.jpg"),
+            ("Туфли мэри-джейн", 2, 1, 3, 38, 9999.50, "Натуральная кожа", "Красный", "LOVE MOSCHINO",
+             "images_shoe/mary_wom.jpg"),
+            ("Ботинки DR. MARTENS", 1, 1, 3, 39, 9500.99, "Натуральная кожа", "Коричневый", "DR. MARTENS",
+             "images_shoe/drmar_wom.jpg"),
+            ("Высокие кеды CONVERSE", 3, 2, 2, 42, 8420.33, "Текстиль", "Черный", "CONVERSE", "images_shoe/kedi_man.jpg"),
+            ("Женские кеды OFFICINE CREATIVE", 3, 1, 2, 37, 10000.89, "Кожа натуральная, нубук", "Серый",
+             "OFFICINE CREATIVE", "images_shoe/kedi_wom.jpg"),
+            ("Босоножки CASADEI GERALDINE-HELEN", 2, 1, 2, 38, 15000.99, "Шелк, натуральная кожа", "Белый", "CASADEI",
+             "images_shoe/bos_cas.jpg"),
+            ("Мужские ботинки MAISON DAVID", 1, 2, 3, 43, 12510.00, "Натуральная кожа", "Черный", "MAISON DAVID",
+             "images_shoe/botinki_maison.jpg"),
+            ("Мужские кроссовки KENZO KENZO-PACE LOW TOP SNEAKERS", 4, 2, 2, 44, 10500.39, "Резина, текстиль", "Белый",
+             "KENZO", "images_shoe/krossovki_kenzo.jpg"),
+            ("Женские кроссовки NIKE Nike Pegasus 40", 4, 1, 4, 39, 8750.88, "Текстиль, резина", "Розовый", "NIKE",
+             "images_shoe/nike_wom_pink.jpg"),
+            ("Женские кроссовки NIKE Nike Venture Runner", 4, 1, 4, 40, 10649.90, "Текстиль, резина, замша", "Черный",
+             "NIKE", "images_shoe/nike_wom_black.jpg"),
+            ("Мужские кеды NIKE NIKE Dunk Low", 3, 2, 4, 42, 13678.77, "Текстиль, резина, замша, натуральная кожа",
+             "Черный", "NIKE", "images_shoe/nike_man.jpg")
+        ]
+
+        cursor.executemany('''
+                    INSERT OR IGNORE INTO shoes (name_shoes, id_category, id_gender, id_season, size, price, material, color, brand, product_image)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', shoes)
+
+        conn.commit()
+
+
+class LoginWindow(QDialog):
+    # Инициализация окна авторизации
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Авторизация")
+        self.setFixedSize(300, 250)
+        self.setStyleSheet("background-color: #f0f8ff; border-radius: 10px;")
+        self.init_ui()
+
+    # Создание интерфейса окна авторизации
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        title_label = QLabel("<h3><b>Вход в систему</b></h3>")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+
+        self.username_input = QLineEdit(self)
+        self.username_input.setPlaceholderText("Имя пользователя")
+        layout.addWidget(self.username_input)
+
+        self.login_input = QLineEdit(self)
+        self.login_input.setPlaceholderText("Логин")
+        layout.addWidget(self.login_input)
+
+        self.password_input = QLineEdit(self)
+        self.password_input.setPlaceholderText("Пароль")
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(self.password_input)
+
+        login_button = QPushButton("Войти", self)
+        login_button.setStyleSheet("background-color: #0078d4; color: #ffffff; font-weight: bold;")
+        login_button.clicked.connect(self.login)
+        layout.addWidget(login_button)
+
+        register_button = QPushButton("Зарегистрироваться", self)
+        register_button.setStyleSheet("color: #0078d4; font-weight: bold;")
+        register_button.clicked.connect(self.open_register)
+        layout.addWidget(register_button)
+
+    # Проверка учетных данных пользователя
+    def login(self):
+        username = self.username_input.text()
+        login = self.login_input.text()
+        password = self.password_input.text()
+
+        with sqlite3.connect(DB_NAME) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE username = ? AND password = ? AND login = ?",
+                           (username, password, login))
+            user = cursor.fetchone()
+
+        if user:
+            QMessageBox.information(self, "Успех", "Вы успешно вошли!")
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Ошибка", "Неверное имя пользователя, логин или пароль.")
+
+    # Открытие окна регистрации
+    def open_register(self):
+        register_dialog = RegisterWindow(self)
+        register_dialog.exec()
+
+
+class RegisterWindow(QDialog):
+    # Инициализация окна регистрации
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Регистрация")
+        self.setFixedSize(300, 250)
+        self.setStyleSheet("background-color: #f0f8ff; border-radius: 10px;")
+        self.init_ui()
+
+    # Создание интерфейса окна регистрации
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        title_label = QLabel("<h3><b>Регистрация</b></h3>")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+
+        self.username_input = QLineEdit(self)
+        self.username_input.setPlaceholderText("Имя пользователя")
+        layout.addWidget(self.username_input)
+
+        self.login_input = QLineEdit(self)
+        self.login_input.setPlaceholderText("Логин")
+        layout.addWidget(self.login_input)
+
+        self.password_input = QLineEdit(self)
+        self.password_input.setPlaceholderText("Пароль")
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(self.password_input)
+
+        register_button = QPushButton("Зарегистрироваться", self)
+        register_button.setStyleSheet("background-color: #28a745; color: #ffffff; font-weight: bold;")
+        register_button.clicked.connect(self.register)
+        layout.addWidget(register_button)
+
+    # Регистрация нового пользователя
+    def register(self):
+        username = self.username_input.text()
+        login = self.login_input.text()
+        password = self.password_input.text()
+
+        if not username or not password or not login:
+            QMessageBox.warning(self, "Ошибка", "Заполните все поля.")
+            return
+
+        with sqlite3.connect(DB_NAME) as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("INSERT INTO users (username, password, login) VALUES (?, ?, ?)",
+                               (username, password, login))
+                conn.commit()
+                QMessageBox.information(self, "Успех", "Регистрация прошла успешно!")
+                self.accept()
+            except sqlite3.IntegrityError:
+                QMessageBox.warning(self, "Ошибка", "Пользователь с таким именем/логином уже существует.")
+
+
+class MainWindow(QMainWindow):
+    # Инициализация главного окна приложения
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("FeetFashion")
+        self.resize(1000, 700)
+        self.setStyleSheet("background:rgb(233, 251, 255)")
+
+        self.centralwidget = QWidget(self)
+        self.setCentralWidget(self.centralwidget)
+
+        self.layout = QVBoxLayout(self.centralwidget)
+
+        self.filter_frame = QFrame(self.centralwidget)
+        self.horizontalLayout = QHBoxLayout(self.filter_frame)
+
+        self.search_line = QLineEdit(self.filter_frame)
+        self.search_line.setPlaceholderText("Поиск...")
+        self.horizontalLayout.addWidget(self.search_line)
+
+        self.search_button = QPushButton("Искать", self.filter_frame)
+        self.search_button.setStyleSheet("background-color: rgb(189, 223, 255); font: 12pt 'MS Shell Dlg 2';")
+        icon_cart1 = QIcon("icons_images/search_icon.png")
+        self.search_button.setIcon(icon_cart1)
+        self.search_button.clicked.connect(self.apply_filters)
+        self.horizontalLayout.addWidget(self.search_button)
+
+        self.category_combo = QComboBox(self.filter_frame)
+        self.load_categories()
+        self.horizontalLayout.addWidget(QLabel("Категория:"))
+        self.horizontalLayout.addWidget(self.category_combo)
+
+        self.gender_combo = QComboBox(self.filter_frame)
+        self.load_genders()
+        self.horizontalLayout.addWidget(QLabel("Пол:"))
+        self.horizontalLayout.addWidget(self.gender_combo)
+
+        self.season_combo = QComboBox(self.filter_frame)
+        self.load_seasons()
+        self.horizontalLayout.addWidget(QLabel("Сезон:"))
+        self.horizontalLayout.addWidget(self.season_combo)
+
+        self.shoppingcart_button = QPushButton("Корзина", self.filter_frame)
+        self.shoppingcart_button.setStyleSheet("background-color: rgb(189, 223, 255); font: 12pt 'MS Shell Dlg 2';")
+        icon_cart = QIcon("icons_images/shopping_cart_icon.png")
+        self.shoppingcart_button.setIcon(icon_cart)
+        self.shoppingcart_button.clicked.connect(self.open_cart)
+        self.horizontalLayout.addWidget(self.shoppingcart_button)
+
+        self.layout.addWidget(self.filter_frame)
+
+        self.scrollArea = QScrollArea(self.centralwidget)
+        self.scrollArea.setWidgetResizable(True)
+        self.catalog_widget = QWidget()
+        self.catalog_layout = QVBoxLayout(self.catalog_widget)
+        self.scrollArea.setWidget(self.catalog_widget)
+        self.layout.addWidget(self.scrollArea)
+        self.load_shoes()
+
+    # Загрузка категорий товаров из базы данных
+    def load_categories(self):
+        with sqlite3.connect(DB_NAME) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name_category FROM category")
+            categories = cursor.fetchall()
+            self.category_combo.addItem("Все")
+            self.category_combo.addItems([cat[0] for cat in categories])
+
+    # Загрузка доступных полов из базы данных
+    def load_genders(self):
+        with sqlite3.connect(DB_NAME) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name_gender FROM gender")
+            genders = cursor.fetchall()
+            self.gender_combo.addItem("Все")
+            self.gender_combo.addItems([gen[0] for gen in genders])
+
+    # Загрузка сезонов из базы данных
+    def load_seasons(self):
+        with sqlite3.connect(DB_NAME) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name_season FROM season")
+            seasons = cursor.fetchall()
+            self.season_combo.addItem("Все")
+            self.season_combo.addItems([season[0] for season in seasons])
+
+    # Загрузка списка обуви из базы данных
+    def load_shoes(self, filter_name=None, filter_category=None, filter_gender=None, filter_season=None):
+        with sqlite3.connect(DB_NAME) as conn:
+            cursor = conn.cursor()
+
+            query = '''
+                SELECT shoes.name_shoes, shoes.price, shoes.material, shoes.color, shoes.brand, shoes.product_image, 
+                category.name_category, gender.name_gender, season.name_season, shoes.size, shoes.id_shoes
+                FROM shoes
+                JOIN category ON shoes.id_category = category.id_category
+                JOIN gender ON shoes.id_gender = gender.id_gender
+                JOIN season ON shoes.id_season = season.id_season
+                WHERE 1 = 1
+            '''
+            params = []
+
+            if filter_name:
+                query += " AND shoes.name_shoes LIKE ?"
+                params.append(f"%{filter_name}%")
+            if filter_category and filter_category != "Все":
+                query += " AND category.name_category = ?"
+                params.append(filter_category)
+            if filter_gender and filter_gender != "Все":
+                query += " AND gender.name_gender = ?"
+                params.append(filter_gender)
+            if filter_season and filter_season != "Все":
+                query += " AND season.name_season = ?"
+                params.append(filter_season)
+
+            cursor.execute(query, params)
+            shoes = cursor.fetchall()
+
+            for i in reversed(range(self.catalog_layout.count())):
+                self.catalog_layout.itemAt(i).widget().setParent(None)
+
+            for shoe in shoes:
+                shoe_frame = QFrame()
+                shoe_frame.setStyleSheet("""
+                    border: 2px solid darkblue;
+                    padding: 15px;
+                    margin-bottom: 15px;
+                    border-radius: 15px;
+                    background-color: #e0f7fa; 
+                """)
+                shoe_layout = QHBoxLayout(shoe_frame)
+                shoe_layout.setSpacing(20)
+                shoe_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+                image_label = QLabel()
+                pixmap = QPixmap(shoe[5])
+                if pixmap.isNull():
+                    image_label.setText("Нет изображения")
+                    image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                else:
+                    image_label.setPixmap(
+                        pixmap.scaled(250, 250, Qt.AspectRatioMode.KeepAspectRatio))
+                shoe_layout.addWidget(image_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+                details_layout = QVBoxLayout()
+                details_layout.setSpacing(5)
+                details_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+                details_label = QLabel(f"<b style='font-size:24px;'>{shoe[0]}</b><br>"
+                                       f"<span style='font-size:18px;'><i>Категория:</i> {shoe[6]}<br>"
+                                       f"<i>Пол:</i> {shoe[7]}<br>"
+                                       f"<i>Сезон:</i> {shoe[8]}<br>"
+                                       f"<i>Материал:</i> {shoe[2]}<br>"
+                                       f"<i>Цвет:</i> {shoe[3]}<br>"
+                                       f"<i>Бренд:</i> {shoe[4]}<br>"
+                                       f"<b>Цена:</b> {shoe[1]} ₽</span>")
+                details_label.setWordWrap(True)
+                details_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                details_layout.addWidget(details_label)
+
+                size_label = QLabel("<b style='font-size: 20px;'>Выберите размер:</b>")
+                size_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                details_layout.addWidget(size_label)
+
+                size_combo = QComboBox()
+                size_combo.setStyleSheet("font-size: 20px;")
+                for size in range(36, 45):
+                    size_combo.addItem(str(size))
+                details_layout.addWidget(size_combo)
+
+                add_to_cart_btn = QPushButton("Добавить в корзину")
+                add_to_cart_btn.setStyleSheet("background-color: #90ee90; font-size: 18px;")
+                add_to_cart_btn.clicked.connect(
+                    lambda checked, s=shoe, sc=size_combo: self.verify_and_add_to_cart(s, sc))
+                details_layout.addWidget(add_to_cart_btn)
+
+                shoe_layout.addLayout(details_layout)
+                self.catalog_layout.addWidget(shoe_frame)
+
+    # Проверка и добавление товара в корзину
+    def verify_and_add_to_cart(self, shoe, size_combo):
+        selected_size = size_combo.currentText()
+        if not selected_size:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, выберите размер.")
+        else:
+            try:
+                with sqlite3.connect(DB_NAME) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO shoppingcart (id_shoes, amount_cart)
+                        VALUES (?, ?)
+                    ''', (shoe[10], 1))
+                    conn.commit()
+                    QMessageBox.information(self, "Корзина",
+                                            f"Товар {shoe[0]} размер {selected_size} добавлен в корзину!")
+            except sqlite3.Error as e:
+                QMessageBox.critical(self, "Ошибка", f"Ошибка добавления в корзину: {e}")
+
+    # Применение фильтров к товарам
+    def apply_filters(self):
+        name_filter = self.search_line.text()
+        category_filter = self.category_combo.currentText()
+        gender_filter = self.gender_combo.currentText()
+        season_filter = self.season_combo.currentText()
+
+        self.load_shoes(filter_name=name_filter, filter_category=category_filter, filter_gender=gender_filter,
+                        filter_season=season_filter)
+
+    # Открытие окна корзины
+    def open_cart(self):
+        cart_window = ShoppingCartWindow(self)
+        cart_window.show()
+
+
+class ShoppingCartWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle("Корзина")
+        self.setGeometry(300, 300, 500, 400)
+        self.setStyleSheet("background-color: #f0f8ff;")
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
+        self.populate_cart()
+
+        self.setModal(True)
+
+    def populate_cart(self):
+        for i in reversed(range(self.layout.count())):
+            widget = self.layout.itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
+
+        try:
+            with sqlite3.connect(DB_NAME) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT shoes.name_shoes, shoes.size, shoppingcart.amount_cart, shoes.price "
+                    "FROM shoppingcart JOIN shoes ON shoppingcart.id_shoes = shoes.id_shoes"
+                )
+                cart_items = cursor.fetchall()
+
+                if not cart_items:
+                    empty_label = QLabel("Корзина пуста.")
+                    empty_label.setStyleSheet("font-size: 16px; color: #000080;")
+                    self.layout.addWidget(empty_label)
+                    return
+
+                total_price = sum(amount * price for _, _, amount, price in cart_items)
+                for title, size, amount, price in cart_items:
+                    item_label = QLabel(f"{title}, Размер {size} (x{amount}) - {price} ₽ за штуку")
+                    item_label.setStyleSheet("font-size: 16px; color: #000080;")
+                    self.layout.addWidget(item_label)
+
+                total_label = QLabel(f"<b>Итоговая сумма: {total_price} ₽</b>")
+                total_label.setStyleSheet("font-size: 18px; color: #000080; margin-top: 10px;")
+                self.layout.addWidget(total_label)
+
+                checkout_button = QPushButton("Оформить заказ")
+                checkout_button.setStyleSheet(
+                    "background-color: #90ee90; font-size: 16px; padding: 10px; margin-top: 10px;")
+                checkout_button.clicked.connect(lambda: self.checkout(total_price))
+                self.layout.addWidget(checkout_button)
+
+                clear_cart_button = QPushButton("Очистить корзину")
+                clear_cart_button.setStyleSheet(
+                    "background-color: #ffcccb; font-size: 16px; padding: 10px; margin-top: 5px;")
+                clear_cart_button.clicked.connect(self.clear_cart)
+                self.layout.addWidget(clear_cart_button)
+
+        except sqlite3.Error as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка загрузки данных: {e}")
+
+    def clear_cart(self):
+        try:
+            with sqlite3.connect(DB_NAME) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM shoppingcart")
+                conn.commit()
+                QMessageBox.information(self, "Успех", "Корзина успешно очищена.")
+                self.populate_cart()
+        except sqlite3.Error as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка очистки корзины: {e}")
+
+    def checkout(self, total_price):
+        try:
+            print("Нажата кнопка 'Оформить заказ'")
+            order_form = OrderForm(total_price=total_price, parent=self)
+            order_form.exec()
+            self.populate_cart()
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть окно заказа: {e}")
+
+class OrderForm(QDialog):
+    # Инициализация формы оформления заказа
+    def __init__(self, total_price, parent=None):
+        super().__init__(parent)
+        print("Конструктор OrderForm вызван")
+        self.total_price = total_price
+        self.setWindowTitle("Оформление заказа")
+        self.setGeometry(350, 350, 400, 400)
+        self.setStyleSheet("background-color: #ffffff;")
+        self.initUI()
+
+    # Создание интерфейса для оформления заказа
+    def initUI(self):
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(30, 30, 30, 30)
+        self.layout.setSpacing(15)
+
+        self.city_input = self.add_label_and_input(self.layout, "Город:", "Введите город")
+        self.street_input = self.add_label_and_input(self.layout, "Улица:", "Введите улицу")
+        self.house_input = self.add_label_and_input(self.layout, "Дом:", "Введите номер дома")
+        self.apartment_input = self.add_label_and_input(self.layout, "Квартира:", "Введите номер квартиры")
+
+        payment_label = QLabel("Способ оплаты:")
+        payment_label.setStyleSheet("font-size: 14px; color: #333333;")
+        self.layout.addWidget(payment_label)
+
+        self.payment_combo = QComboBox()
+        self.payment_combo.setStyleSheet("font-size: 14px;")
+        self.payment_combo.addItems(["Оплата при получении", "Оплата онлайн"])
+        self.layout.addWidget(self.payment_combo)
+
+        export_button = QPushButton("Экспорт в Excel")
+        export_button.setStyleSheet(
+            "background-color: #add8e6; font-size: 16px; padding: 10px; margin-top: 10px;")
+        export_button.clicked.connect(self.export_to_excel)
+        self.layout.addWidget(export_button)
+
+        place_order_button = QPushButton("Подтвердить")
+        place_order_button.setStyleSheet(
+            "background-color: #4CAF50; color: white; font-size: 16px; padding: 10px; border-radius: 5px;")
+        place_order_button.clicked.connect(self.place_order)
+        self.layout.addWidget(place_order_button, alignment=Qt.AlignmentFlag.AlignCenter)
+
+    # Создание интерфейса формы оформления заказа
+    def add_label_and_input(self, layout, label_text, placeholder):
+        label = QLabel(label_text)
+        label.setStyleSheet("font-size: 14px; color: #333333;")
+        layout.addWidget(label)
+
+        line_edit = QLineEdit()
+        line_edit.setPlaceholderText(placeholder)
+        line_edit.setStyleSheet("font-size: 14px;")
+        layout.addWidget(line_edit)
+        return line_edit
+
+    # Подтверждение и сохранение заказа в базе данных
+    def place_order(self):
+        with sqlite3.connect(DB_NAME) as conn:
+            cursor = conn.cursor()
+            # Создать новый заказ и получить id корзины
+            cursor.execute("SELECT id_shoppingcart FROM shoppingcart")
+            id_shoppingcart = cursor.fetchone()[0]
+
+            cursor.execute('''
+                   INSERT INTO orders (id_shoppingcart, order_date, town, street, house, flat, payment_method, total_price)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ''', (id_shoppingcart, datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                     self.city_input.text(), self.street_input.text(), self.house_input.text(),
+                     self.apartment_input.text(), self.payment_combo.currentText(), self.total_price))
+            conn.commit()
+            QMessageBox.information(self, "Успех", f"Заказ на сумму {self.total_price} руб. оформлен!")
+
+    # Экспорт содержимого корзины в файл Excel
+    def export_to_excel(self, subprocess=None):
+        try:
+            with sqlite3.connect(DB_NAME) as conn:
+                cursor = conn.cursor()
+
+                # Получаем товары из корзины
+                cursor.execute(
+                    "SELECT shoes.name_shoes, shoppingcart.amount_cart, shoes.price "
+                    "FROM shoppingcart JOIN shoes ON shoppingcart.id_shoes = shoes.id_shoes"
+                )
+                cart_items = cursor.fetchall()
+
+                if not cart_items:
+                    QMessageBox.warning(self, "Предупреждение", "Корзина пуста. Экспорт невозможен.")
+                    return
+
+                # Создание нового Excel файла
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Корзина"
+
+                # Добавление заголовков
+                ws.append(["Товар", "Количество", "Цена за штуку", "Сумма"])
+
+                # Добавление данных корзины
+                total_price_calculated = 0
+                for title, amount, price in cart_items:
+                    total = amount * price
+                    total_price_calculated += total
+                    ws.append([title, amount, price, total])
+
+                # Вставка информации о сумме, дате и номере чека
+                order_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                ws.append([])
+                ws.append(["Итоговая сумма:", total_price_calculated])
+                ws.append(["Дата заказа:", order_date])
+
+                # Автоматическое нумерование чека
+                cursor.execute("SELECT COUNT(*) FROM orders")
+                order_number = cursor.fetchone()[0] + 1
+                ws.append(["Номер чека:", order_number])
+
+                # Сохранение файла
+                file_path = "cart_export.xlsx"
+                wb.save(file_path)
+
+                # Открытие файла Excel для разных ОС
+                if os.name == 'nt':  # Для Windows
+                    os.startfile(file_path)
+                elif os.name == 'posix':  # Для mac
+                    subprocess.Popen(['open', file_path])
+
+                QMessageBox.information(self, "Успех", f"Корзина успешно экспортирована в {file_path} и открыта.")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка экспорта: {e}")
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    create_tables()
+    populate_database()
+    # Создание таблицы пользователей, если её нет
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute(CREATE_USERS_TABLE)
+        conn.commit()
+
+    # Показ окна авторизации
+    login_dialog = LoginWindow()
+    if login_dialog.exec() == QDialog.DialogCode.Accepted:
+        create_tables()
+        populate_database()
+        window = MainWindow()
+        window.show()
+        sys.exit(app.exec())
